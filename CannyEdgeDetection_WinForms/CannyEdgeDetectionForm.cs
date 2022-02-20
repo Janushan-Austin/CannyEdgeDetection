@@ -47,6 +47,11 @@ namespace CannyEdgeDetection
             }
         }
 
+        private int Map(int x, int fromLower, int fromHigher, int toLower, int toHigher)
+        {
+            return (int)((x - fromLower) / (float)(fromHigher - fromLower) * (toHigher - toLower)) + toLower;
+        }
+
         private void DetectEdgesButton_Click(object sender, EventArgs e)
         {
             if(ImagePictureBox.Image == null)
@@ -65,8 +70,68 @@ namespace CannyEdgeDetection
 
             CannyEdgeCandidate[,] candidates = CalculateGradients(copyBitmap);
 
+            Bitmap gradientsBM = new Bitmap(copyBitmap.Width, copyBitmap.Height);
+            int maxR = 0;
+            int maxG = 0;
+            for (int y = 0; y < gradientsBM.Height; y++)
+            {
+                for (int x = 0; x < gradientsBM.Width; x++)
+                {
+                    int absR = Math.Abs(candidates[y,x].Gradient.Dx);
+                    int absG = Math.Abs(candidates[y, x].Gradient.Dy);
+                    if(maxR <= absR)
+                    {
+                        maxR = absR;
+                    }
+                    if(maxG <= absG)
+                    {
+                        maxG = absG;
+                    }
+                }
+            }
+
+            for (int y = 0; y < gradientsBM.Height; y++)
+            {
+                for(int x = 0; x < gradientsBM.Width; x++)
+                {
+                    int r = Map(Math.Abs(candidates[y, x].Gradient.Dx), 0, maxR, 0, 255);
+                    int g = Map(Math.Abs(candidates[y, x].Gradient.Dy), 0, maxG, 0, 255);
+                    gradientsBM.SetPixel(x, y, Color.FromArgb(r, g, 0));
+                }
+            }
+            smoothPhaseForm.Canvas.Image = gradientsBM;
             //use manhattan distance to determine if p(x,y) is edge and not actual magnitude
             NonMaximalSuppression(candidates);
+            gradientsBM = new Bitmap(copyBitmap.Width, copyBitmap.Height);
+            maxR = 0;
+            maxG = 0;
+            for (int y = 0; y < gradientsBM.Height; y++)
+            {
+                for (int x = 0; x < gradientsBM.Width; x++)
+                {
+                    int absR = Math.Abs(candidates[y, x].Gradient.Dx);
+                    int absG = Math.Abs(candidates[y, x].Gradient.Dy);
+                    if (maxR <= absR)
+                    {
+                        maxR = absR;
+                    }
+                    if (maxG <= absG)
+                    {
+                        maxG = absG;
+                    }
+                }
+            }
+
+            for (int y = 0; y < gradientsBM.Height; y++)
+            {
+                for (int x = 0; x < gradientsBM.Width; x++)
+                {
+                    int r = Map(Math.Abs(candidates[y, x].Gradient.Dx), 0, maxR, 0, 255);
+                    int g = Map(Math.Abs(candidates[y, x].Gradient.Dy), 0, maxG, 0, 255);
+                    gradientsBM.SetPixel(x, y, Color.FromArgb(r, g, 0));
+                }
+            }
+            grayscalePhaseForm.Canvas.Image = gradientsBM;
 
             ThresholdingHysterisis(candidates);
             CannyEdgePhaseForm ThresholdingPhase = new CannyEdgePhaseForm();
@@ -205,11 +270,13 @@ namespace CannyEdgeDetection
                     }
                     else if(prevX >=0)
                     {
-                        dx = -transformationBytes[y + prevX];
+                        dx = transformationBytes[y + x] - transformationBytes[y + prevX];
+                        //dx = 0;
                     }
                     else
                     {
-                        dx = transformationBytes[y + nextX];
+                        dx = transformationBytes[y + nextX] - transformationBytes[y + x];
+                        //dx = 0;
                     }
 
                     if (prevY >= 0 && nextY < heightStride)
@@ -218,11 +285,13 @@ namespace CannyEdgeDetection
                     }
                     else if (prevY >= 0)
                     {
-                        dy = transformationBytes[prevY + x];
+                        dy = transformationBytes[prevY + x] - transformationBytes[y + x];
+                        //dy = 0;
                     }
                     else
                     {
-                        dy = -transformationBytes[nextY + x];
+                        dy = transformationBytes[y + x] - transformationBytes[nextY + x];
+                        //dy = 0;
                     }
                     candidates[row, col] = new CannyEdgeCandidate(new PixelGradient(col, row, dx, dy));
                     candidates[row, col].x = col;
@@ -239,18 +308,34 @@ namespace CannyEdgeDetection
             {
                 for (int col = 1; col < candidates.GetLength(1)-1; col++)
                 {
+                    CannyEdgeCandidate candidate = candidates[row, col];
                     int rightMagnitude = -1;
                     int leftMagnitude = -1;
-                    CannyEdgeCandidate candidate = candidates[row, col];
+                    int absDx = Math.Abs(candidate.Gradient.Dx);
+                    int absDy = Math.Abs(candidate.Gradient.Dy);
+                    if(absDx < 2 && absDy < 2)
+                    {
+                        continue;
+                    }
                     if(candidate.Gradient.Dx * candidate.Gradient.Dy >= 0)
                     {
-                        int absDx = Math.Abs(candidate.Gradient.Dx);
-                        int absDy = Math.Abs(candidate.Gradient.Dy);
+                        
                         int axisPointColOffset = Math.Max(0, Math.Min(1, absDx - absDy));
                         int axisPointRowOffset = Math.Max(0, Math.Min(1, absDy - absDx));
+                        
                         if (axisPointColOffset == 0 && axisPointRowOffset == 0 && candidate.Gradient.Dx == 0 && candidate.Gradient.Dy == 0)
                         {
                             continue;
+                        }
+                        else if(axisPointColOffset == 0 && axisPointRowOffset == 0 && candidate.Gradient.Dx == 0)
+                        {
+                            rightMagnitude = candidates[row + 1, col].Gradient.ManhattanDistance;
+                            leftMagnitude = candidates[row - 1, col].Gradient.ManhattanDistance;
+                        }
+                        else if (axisPointColOffset == 0 && axisPointRowOffset == 0 && candidate.Gradient.Dy == 0)
+                        {
+                            rightMagnitude = candidates[row, col + 1].Gradient.ManhattanDistance;
+                            leftMagnitude = candidates[row, col -1].Gradient.ManhattanDistance;
                         }
                         else if (axisPointColOffset == 0 && axisPointRowOffset == 0)
                         {
@@ -267,8 +352,6 @@ namespace CannyEdgeDetection
                     }
                     else
                     {
-                        int absDx = Math.Abs(candidate.Gradient.Dx);
-                        int absDy = Math.Abs(candidate.Gradient.Dy);
                         int axisPointColOffset = Math.Max(0, Math.Min(1, absDx - absDy));
                         int axisPointRowOffset = Math.Max(0, Math.Min(1, absDy - absDx));
 
@@ -286,7 +369,7 @@ namespace CannyEdgeDetection
                         }
                     }
 
-                    if(candidate.Gradient.ManhattanDistance >= rightMagnitude && candidate.Gradient.ManhattanDistance >= leftMagnitude)
+                    if(candidate.Gradient.ManhattanDistance > rightMagnitude && candidate.Gradient.ManhattanDistance > leftMagnitude)
                     {
                         candidate.EdgeState = CannyPixelEdgeState.PotentialEdge;
                     }
@@ -312,20 +395,23 @@ namespace CannyEdgeDetection
             int fivePercentCount = (int)(sortedEdgeCandidates.Count * .05f);
             for (int i = sortedEdgeCandidates.Count - fivePercentCount + 1; i < sortedEdgeCandidates.Count; i++)
             {
-                candidates[sortedEdgeCandidates[i].y, sortedEdgeCandidates[i].x].EdgeState = CannyPixelEdgeState.NotAnEdge;
+                //candidates[sortedEdgeCandidates[i].y, sortedEdgeCandidates[i].x].EdgeState = CannyPixelEdgeState.NotAnEdge;
             }
             sortedEdgeCandidates = sortedEdgeCandidates.Take(sortedEdgeCandidates.Count - fivePercentCount).ToList();
 
             bool[,] visited = new bool[candidates.GetLength(0), candidates.GetLength(1)];
             Queue<CannyEdgeCandidate> bfsPixels = new Queue<CannyEdgeCandidate>();
-            for(int i = 0; i < fivePercentCount; i++)
+            for (int i = 0; i < fivePercentCount; i++)
             {
                 CannyEdgeCandidate candidate = candidates[sortedEdgeCandidates[i].y, sortedEdgeCandidates[i].x];
                 candidate.EdgeState = CannyPixelEdgeState.IsAnEdge;
                 bfsPixels.Enqueue(candidate);
                 visited[sortedEdgeCandidates[i].y, sortedEdgeCandidates[i].x] = true;
             }
-
+            CannyEdgePhaseForm initialChoosenEdges = new CannyEdgePhaseForm();
+            initialChoosenEdges.Canvas.Image = DrawBitMapWithEdges(new Bitmap(ImagePictureBox.Image), candidates);
+            initialChoosenEdges.Text = "Initial Choosen Edges";
+            initialChoosenEdges.Show();
             while (bfsPixels.Count > 0)
             {
                 CannyEdgeCandidate knownEdge = bfsPixels.Dequeue();
@@ -388,8 +474,8 @@ namespace CannyEdgeDetection
     public enum CannyPixelEdgeState
     {
         NotAnEdge = 0,
-        PotentialEdge,
-        IsAnEdge,
+        PotentialEdge = 1,
+        IsAnEdge = 2,
     }
     public class CannyEdgeCandidate
     {
